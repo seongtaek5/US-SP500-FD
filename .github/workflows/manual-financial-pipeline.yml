@@ -1,0 +1,77 @@
+name: Manual Financial Pipeline
+
+permissions:
+  contents: write
+
+on:
+  workflow_dispatch:
+    inputs:
+      market:
+        description: "Which pipeline to run"
+        required: true
+        default: "both"
+        type: choice
+        options:
+          - both
+          - kr
+          - us
+
+jobs:
+  run-pipeline:
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Run KR pipeline
+        if: ${{ inputs.market == 'both' || inputs.market == 'kr' }}
+        run: |
+          python scripts/pipeline_kr_kospi200.py
+
+      - name: Run US pipeline
+        if: ${{ inputs.market == 'both' || inputs.market == 'us' }}
+        run: |
+          python scripts/pipeline_us_sp500.py
+
+      - name: Commit and push updated xlsx files
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          git add output_kospi200/KR_*.xlsx output_sp500/US_*.xlsx || true
+
+          if git diff --cached --quiet; then
+            echo "No xlsx changes to commit"
+            exit 0
+          fi
+
+          git commit -m "chore(data): update financial ratio xlsx (${{ inputs.market }})"
+          git push
+
+      - name: Upload KR outputs
+        if: ${{ inputs.market == 'both' || inputs.market == 'kr' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: kr-financial-ratio-files
+          path: output_kospi200/KR_*.xlsx
+          if-no-files-found: warn
+
+      - name: Upload US outputs
+        if: ${{ inputs.market == 'both' || inputs.market == 'us' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: us-financial-ratio-files
+          path: output_sp500/US_*.xlsx
+          if-no-files-found: warn
